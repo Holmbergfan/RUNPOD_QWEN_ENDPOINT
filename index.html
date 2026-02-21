@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Qwen Endpoint – AI Tools</title>
+  <style>
+    /* ── Base reset ─────────────────────────────────────────── */
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+        Helvetica, Arial, sans-serif;
+      background: #0e0e10;
+      color: #e4e4e7;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 2rem 1rem;
+    }
+
+    h1 {
+      font-size: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+
+    /* ── Tool button row ───────────────────────────────────── */
+    .tool-bar {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 2rem;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .tool-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.5rem 1rem;
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: #e4e4e7;
+      background: #1e1e24;
+      border: 1px solid #2e2e38;
+      border-radius: 0.5rem;
+      cursor: pointer;
+      transition: background 0.15s ease, border-color 0.15s ease,
+        box-shadow 0.15s ease;
+    }
+
+    .tool-btn:hover {
+      background: #282832;
+      border-color: #5046e5;
+    }
+
+    .tool-btn:focus-visible {
+      outline: 2px solid #5046e5;
+      outline-offset: 2px;
+    }
+
+    .tool-btn.active {
+      background: #5046e5;
+      border-color: #5046e5;
+      color: #fff;
+    }
+
+    .tool-btn svg {
+      width: 1rem;
+      height: 1rem;
+      flex-shrink: 0;
+    }
+
+    /* ── Dual-zone faceswap container ──────────────────────── */
+    .faceswap-container {
+      display: flex;
+      gap: 1.5rem;
+      width: 100%;
+      max-width: 720px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    /* ── Upload zone (shared base) ─────────────────────────── */
+    .upload-zone {
+      flex: 1 1 280px;
+      max-width: 340px;
+      min-height: 260px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.75rem;
+      padding: 1.5rem;
+      border: 2px dashed #3a3a48;
+      border-radius: 0.75rem;
+      background: #16161a;
+      cursor: pointer;
+      transition: border-color 0.2s ease, background 0.2s ease;
+      text-align: center;
+    }
+
+    .upload-zone:hover {
+      border-color: #5046e5;
+      background: #1a1a22;
+    }
+
+    .upload-zone.drag-over {
+      border-color: #7c73ff;
+      background: #1e1a30;
+    }
+
+    .upload-zone.has-image {
+      border-style: solid;
+      border-color: #5046e5;
+    }
+
+    .upload-zone .zone-icon {
+      width: 2.5rem;
+      height: 2.5rem;
+      color: #5046e5;
+    }
+
+    .upload-zone .zone-label {
+      font-size: 0.9375rem;
+      font-weight: 600;
+      color: #c4c4cc;
+    }
+
+    .upload-zone .zone-hint {
+      font-size: 0.75rem;
+      color: #6b6b7b;
+    }
+
+    .upload-zone img.preview {
+      max-width: 100%;
+      max-height: 200px;
+      border-radius: 0.5rem;
+      object-fit: contain;
+    }
+
+    /* ── Source / Target labels ─────────────────────────────── */
+    .upload-zone[data-role="source"] .zone-label::after {
+      content: " (Source Face)";
+    }
+
+    .upload-zone[data-role="target"] .zone-label::after {
+      content: " (Target Image)";
+    }
+
+    /* ── Hidden file input ─────────────────────────────────── */
+    .upload-zone input[type="file"] {
+      display: none;
+    }
+
+    /* ── Action button ─────────────────────────────────────── */
+    .run-btn {
+      margin-top: 2rem;
+      padding: 0.75rem 2.5rem;
+      font-size: 1rem;
+      font-weight: 700;
+      color: #fff;
+      background: #5046e5;
+      border: none;
+      border-radius: 0.5rem;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+
+    .run-btn:hover {
+      background: #3f37c9;
+    }
+
+    .run-btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+  </style>
+</head>
+<body>
+  <h1>Qwen Endpoint – AI Tools</h1>
+
+  <!-- Tool selector buttons -->
+  <div class="tool-bar">
+    <button class="tool-btn active" data-tool="faceswap">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor"
+           stroke-width="2" viewBox="0 0 24 24">
+        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+        <circle cx="9" cy="7" r="4"/>
+        <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+        <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+      </svg>
+      Face Swap
+    </button>
+
+    <button class="tool-btn" data-tool="chat">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor"
+           stroke-width="2" viewBox="0 0 24 24">
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+      </svg>
+      Chat
+    </button>
+
+    <button class="tool-btn" data-tool="vision">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor"
+           stroke-width="2" viewBox="0 0 24 24">
+        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+        <circle cx="8.5" cy="8.5" r="1.5"/>
+        <polyline points="21 15 16 10 5 21"/>
+      </svg>
+      Vision
+    </button>
+  </div>
+
+  <!-- Dual-zone faceswap upload areas -->
+  <div class="faceswap-container" id="faceswap-panel">
+    <!-- Source face upload zone -->
+    <div class="upload-zone" data-role="source" id="source-zone">
+      <svg class="zone-icon" xmlns="http://www.w3.org/2000/svg" fill="none"
+           stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+        <polyline points="17 8 12 3 7 8"/>
+        <line x1="12" y1="3" x2="12" y2="15"/>
+      </svg>
+      <span class="zone-label">Upload</span>
+      <span class="zone-hint">Drag &amp; drop or click to browse</span>
+      <input type="file" accept="image/*" id="source-input" />
+    </div>
+
+    <!-- Target image upload zone -->
+    <div class="upload-zone" data-role="target" id="target-zone">
+      <svg class="zone-icon" xmlns="http://www.w3.org/2000/svg" fill="none"
+           stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+        <polyline points="17 8 12 3 7 8"/>
+        <line x1="12" y1="3" x2="12" y2="15"/>
+      </svg>
+      <span class="zone-label">Upload</span>
+      <span class="zone-hint">Drag &amp; drop or click to browse</span>
+      <input type="file" accept="image/*" id="target-input" />
+    </div>
+  </div>
+
+  <button class="run-btn" id="run-btn" disabled>Run Face Swap</button>
+
+  <script>
+    /* ── Tool button switching ──────────────────────────────── */
+    document.querySelectorAll(".tool-btn").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        document.querySelectorAll(".tool-btn").forEach(function (b) {
+          b.classList.remove("active");
+        });
+        btn.classList.add("active");
+      });
+    });
+
+    /* ── Upload-zone interactions ───────────────────────────── */
+    function initZone(zoneId, inputId) {
+      var zone = document.getElementById(zoneId);
+      var input = document.getElementById(inputId);
+
+      zone.addEventListener("click", function () {
+        input.click();
+      });
+
+      zone.addEventListener("dragover", function (e) {
+        e.preventDefault();
+        zone.classList.add("drag-over");
+      });
+
+      zone.addEventListener("dragleave", function () {
+        zone.classList.remove("drag-over");
+      });
+
+      zone.addEventListener("drop", function (e) {
+        e.preventDefault();
+        zone.classList.remove("drag-over");
+        if (e.dataTransfer.files.length) {
+          handleFile(zone, e.dataTransfer.files[0]);
+        }
+      });
+
+      input.addEventListener("change", function () {
+        if (input.files.length) {
+          handleFile(zone, input.files[0]);
+        }
+      });
+    }
+
+    function handleFile(zone, file) {
+      if (!file.type.startsWith("image/")) return;
+
+      var reader = new FileReader();
+      reader.onload = function (e) {
+        /* Remove placeholder elements */
+        var icon = zone.querySelector(".zone-icon");
+        var label = zone.querySelector(".zone-label");
+        var hint = zone.querySelector(".zone-hint");
+        if (icon) icon.remove();
+        if (label) label.remove();
+        if (hint) hint.remove();
+
+        /* Show preview */
+        var existing = zone.querySelector("img.preview");
+        if (existing) existing.remove();
+
+        var img = document.createElement("img");
+        img.className = "preview";
+        img.src = e.target.result;
+        zone.appendChild(img);
+        zone.classList.add("has-image");
+
+        checkReady();
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function checkReady() {
+      var hasSource = document.querySelector("#source-zone.has-image");
+      var hasTarget = document.querySelector("#target-zone.has-image");
+      document.getElementById("run-btn").disabled = !(hasSource && hasTarget);
+    }
+
+    initZone("source-zone", "source-input");
+    initZone("target-zone", "target-input");
+  </script>
+</body>
+</html>
