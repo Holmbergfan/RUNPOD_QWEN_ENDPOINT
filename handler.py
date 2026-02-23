@@ -8,6 +8,11 @@ MODEL_NAME = os.environ.get("MODEL_NAME", "Qwen/Qwen2.5-7B-Instruct")
 DTYPE = os.environ.get("DTYPE", "float16").lower()
 DEVICE_MAP = os.environ.get("DEVICE_MAP", "auto")
 
+# Prefer a locally downloaded copy on the network volume over HuggingFace.
+# Checks /workspace/models/<basename> first (e.g. Qwen2.5-7B-Instruct).
+_local_candidate = os.path.join("/workspace/models", MODEL_NAME.split("/")[-1])
+LOAD_PATH = _local_candidate if os.path.isdir(_local_candidate) else MODEL_NAME
+
 torch = None
 AutoModelForCausalLM = None
 AutoTokenizer = None
@@ -74,15 +79,15 @@ def initialize_model():
                 print("Warning: CUDA device introspection failed.")
                 print(traceback.format_exc())
 
-        print(f"Loading model: {MODEL_NAME}")
-        tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
+        print(f"Loading model: {MODEL_NAME} (path={LOAD_PATH})")
+        tokenizer = AutoTokenizer.from_pretrained(LOAD_PATH, trust_remote_code=True)
 
         # Some models do not define a pad token; using EOS avoids generation warnings/failures.
         if tokenizer.pad_token is None and tokenizer.eos_token is not None:
             tokenizer.pad_token = tokenizer.eos_token
 
         model = AutoModelForCausalLM.from_pretrained(
-            MODEL_NAME,
+            LOAD_PATH,
             torch_dtype=torch_dtype,
             device_map=DEVICE_MAP,
             trust_remote_code=True,
