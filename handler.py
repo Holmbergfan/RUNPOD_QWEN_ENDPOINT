@@ -2,68 +2,130 @@ import os
 import traceback
 
 import runpod
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
 
 WORKER_KIND = "qwen-text"
 MODEL_NAME = os.environ.get("MODEL_NAME", "Qwen/Qwen2.5-7B-Instruct")
 DTYPE = os.environ.get("DTYPE", "float16").lower()
 DEVICE_MAP = os.environ.get("DEVICE_MAP", "auto")
 
-dtype_map = {
-    "float16": torch.float16,
-    "bfloat16": torch.bfloat16,
-    "float32": torch.float32,
-}
-if DTYPE not in dtype_map:
-    print(f"Warning: unrecognized DTYPE '{DTYPE}', falling back to float16.")
-torch_dtype = dtype_map.get(DTYPE, torch.float16)
-
-if not torch.cuda.is_available() and torch_dtype == torch.float16:
-    print("CUDA not available and DTYPE=float16; falling back to float32 for CPU compatibility.")
-    torch_dtype = torch.float32
-
-print(f"Startup config -> MODEL_NAME={MODEL_NAME}, DTYPE={torch_dtype}, DEVICE_MAP={DEVICE_MAP}")
-print(f"Torch version: {torch.__version__}, CUDA available: {torch.cuda.is_available()}")
-print(f"Worker kind: {WORKER_KIND}")
-
-if torch.cuda.is_available():
-    print(f"CUDA device count: {torch.cuda.device_count()}")
-    for device_id in range(torch.cuda.device_count()):
-        print(f"GPU[{device_id}]: {torch.cuda.get_device_name(device_id)}")
-
+torch = None
+AutoModelForCausalLM = None
+AutoTokenizer = None
 tokenizer = None
 model = None
 model_init_error = None
 
-try:
-    print(f"Loading model: {MODEL_NAME}")
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
 
-    # Some models do not define a pad token; using EOS avoids generation warnings/failures.
-    if tokenizer.pad_token is None and tokenizer.eos_token is not None:
-        tokenizer.pad_token = tokenizer.eos_token
+def initialize_model():
+    global torch
+    global AutoModelForCausalLM
+    global AutoTokenizer
+    global tokenizer
+    global model
+    global model_init_error
 
-    model = AutoModelForCausalLM.from_pretrained(
-        MODEL_NAME,
-        torch_dtype=torch_dtype,
-        device_map=DEVICE_MAP,
-        trust_remote_code=True,
-    )
-    model.eval()
-    print("Model loaded successfully.")
-except Exception:
-    model_init_error = traceback.format_exc()
-    print("Model initialization failed with traceback:")
-    print(model_init_error)
+    print(f"Worker booting. kind={WORKER_KIND}, MODEL_NAME={MODEL_NAME}, DTYPE={DTYPE}, DEVICE_MAP={DEVICE_MAP}")
+
+    try:
+        import torch as _torch
+        from transformers import AutoModelForCausalLM as _AutoModelForCausalLM
+        from transformers import AutoTokenizer as _AutoTokenizer
+
+        torch = _torch
+        AutoModelForCausalLM = _AutoModelForCausalLM
+        AutoTokenizer = _AutoTokenizer
+    except Exception:
+        model_init_error = traceback.format_exc()
+        print("Dependency import failed with traceback:")
+        print(model_init_error)
+        return
+
+    try:
+        dtype_map = {
+            "float16": torch.float16,
+            "bfloat16": torch.bfloat16,
+            "float32": torch.float32,
+        }
+        if DTYPE not in dtype_map:
+            print(f"Warning: unrecognized DTYPE '{DTYPE}', falling back to float16.")
+        torch_dtype = dtype_map.get(DTYPE, torch.float16)
+
+        cuda_available = False
+        try:
+            cuda_available = torch.cuda.is_available()
+        except Exception:
+            print("Warning: torch.cuda.is_available() failed, assuming CPU.")
+            print(traceback.format_exc())
+
+        if not cuda_available and torch_dtype == torch.float16:
+            print("CUDA not available and DTYPE=float16; falling back to float32 for CPU compatibility.")
+            torch_dtype = torch.float32
+
+        print(f"Startup config -> MODEL_NAME={MODEL_NAME}, DTYPE={torch_dtype}, DEVICE_MAP={DEVICE_MAP}")
+        print(f"Torch version: {torch.__version__}, CUDA available: {cuda_available}")
+
+        if cuda_available:
+            try:
+                device_count = torch.cuda.device_count()
+                print(f"CUDA device count: {device_count}")
+                for device_id in range(device_count):
+                    print(f"GPU[{device_id}]: {torch.cuda.get_device_name(device_id)}")
+            except Exception:
+                print("Warning: CUDA device introspection failed.")
+                print(traceback.format_exc())
+
+        print(f"Loading model: {MODEL_NAME}")
+        tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
+
+        # Some models do not define a pad token; using EOS avoids generation warnings/failures.
+        if tokenizer.pad_token is None and tokenizer.eos_token is not None:
+            tokenizer.pad_token = tokenizer.eos_token
+
+        model = AutoModelForCausalLM.from_pretrained(
+            MODEL_NAME,
+            torch_dtype=torch_dtype,
+            device_map=DEVICE_MAP,
+            trust_remote_code=True,
+        )
+        model.eval()
+        print("Model loaded successfully.")
+    except Exception:
+        model_init_error = traceback.format_exc()
+        print("Model initialization failed with traceback:")
+        print(model_init_error)
+
+
+def _last_line(text):
+    if not text:
+        return "Unknown error"
+    lines = text.strip().splitlines()
+    return lines[-1] if lines else "Unknown error"
+
+
+def _get_model_device():
+    if torch is None or model is None:
+        return None
+    try:
+        return model.device
+    except Exception:
+        pass
+    try:
+        return next(model.parameters()).device
+    except Exception:
+        return torch.device("cpu")
 
 
 def handler(job):
     if model_init_error:
-        init_error_line = model_init_error.strip().splitlines()[-1] if model_init_error.strip() else "Unknown startup error"
         return {
             "error": "Model failed to initialize. Check worker logs for traceback.",
-            "details": init_error_line,
+            "details": _last_line(model_init_error),
+        }
+
+    if tokenizer is None or model is None or torch is None:
+        return {
+            "error": "Worker is not ready.",
+            "details": "Model/tokenizer dependencies are unavailable.",
         }
 
     job_input = job.get("input", {})
@@ -130,7 +192,10 @@ def handler(job):
         return {"error": "top_p must be in the range (0, 1]."}
 
     try:
-        model_inputs = tokenizer([text], return_tensors="pt").to(model.device)
+        model_inputs = tokenizer([text], return_tensors="pt")
+        model_device = _get_model_device()
+        if model_device is not None:
+            model_inputs = model_inputs.to(model_device)
 
         with torch.no_grad():
             generated_ids = model.generate(
@@ -153,11 +218,11 @@ def handler(job):
         generation_error = traceback.format_exc()
         print("Generation failed with traceback:")
         print(generation_error)
-        error_line = generation_error.strip().splitlines()[-1] if generation_error.strip() else "Unknown generation error"
         return {
             "error": "Generation failed. Check worker logs for traceback.",
-            "details": error_line,
+            "details": _last_line(generation_error),
         }
 
 
+initialize_model()
 runpod.serverless.start({"handler": handler})
