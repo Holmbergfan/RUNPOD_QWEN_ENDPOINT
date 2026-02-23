@@ -135,7 +135,7 @@ def handler(job):
 
     # Guard against sending WAN/video pipeline payloads to this text-generation endpoint.
     unsupported_fields = [
-        key for key in ("model_id", "task", "image", "video", "seed", "num_inference_steps")
+        key for key in ("model_id", "task", "image", "video", "num_inference_steps")
         if key in job_input
     ]
     if unsupported_fields:
