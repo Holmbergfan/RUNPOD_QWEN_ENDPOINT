@@ -352,17 +352,18 @@ def handler(job):
             "details": "Model/tokenizer dependencies are unavailable.",
         }
 
-    # Guard against sending WAN/video pipeline payloads to this text-generation endpoint.
-    unsupported_fields = [
-        key for key in ("model_id", "task", "image", "video", "num_inference_steps")
-        if key in job_input
-    ]
-    if unsupported_fields:
+    # Guard against WAN/video payloads accidentally sent to this text endpoint.
+    # Only block fields that are purely WAN-specific (video, task+model_id combo).
+    # 'image', 'tool', 'steps' etc. are NOT blocked — AI tool requests use them.
+    wan_fields = [key for key in ("video",) if key in job_input]
+    if not wan_fields and "task" in job_input and "model_id" in job_input:
+        wan_fields = ["task", "model_id"]
+    if wan_fields:
         return {
             "error": "Unsupported payload for this endpoint.",
             "details": (
-                "This worker is qwen-text only. Remove WAN/video fields "
-                f"{unsupported_fields} and send 'prompt' or 'messages'."
+                "This worker is qwen-text only. WAN/video fields "
+                f"{wan_fields} are not supported here."
             ),
         }
 
