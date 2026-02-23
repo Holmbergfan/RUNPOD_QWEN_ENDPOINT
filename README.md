@@ -23,6 +23,8 @@ The following environment variables control the worker's behavior:
 |----------|---------|-------------|
 | `MODEL_NAME` | `Qwen/Qwen2.5-7B-Instruct` | HuggingFace model ID to load |
 | `DTYPE` | `float16` | Model precision (`float16`, `bfloat16`, `float32`) |
+| `HF_HOME` | `/workspace/.cache/huggingface` | Hugging Face cache path (should be on network volume) |
+| `LOCAL_FILES_ONLY` | `0` | If `1`, never fetch from Hub (load only local/cached files) |
 
 ## Input Schema
 
@@ -72,6 +74,25 @@ Alternatively, you can supply a `messages` list (chat template format):
 }
 ```
 
+## Setup / Model Download Mode
+
+The worker also supports an explicit setup payload for pre-downloading models:
+
+```json
+{
+  "input": {
+    "download_models": true,
+    "model_config": {
+      "hf_repo": "Qwen/Qwen2.5-7B-Instruct",
+      "output_dir": "/workspace/models/Qwen2.5-7B-Instruct",
+      "required_gb": 18
+    }
+  }
+}
+```
+
+When this succeeds for the active `MODEL_NAME`, the worker will try to load the model immediately.
+
 ## Local Testing
 
 1. Install dependencies:
@@ -97,3 +118,22 @@ docker build -t qwen-serverless-worker .
 3. Set the container image to your pushed image.
 4. Configure the desired GPU type, min/max workers, and environment variables (`MODEL_NAME`, `DTYPE`, etc.).
 5. Deploy and test using the **Run** tab or the RunPod API.
+
+---
+
+## Troubleshooting
+
+### `No space left on device` / `os error 28`
+
+This means the worker storage is full while downloading/loading model weights.
+
+- Use a larger mounted volume at `/workspace`.
+- Clear stale data under `/workspace/models` and `/workspace/.cache/huggingface`.
+- Use a smaller model when possible.
+
+### `model is not cached locally ... error occurred while trying to fetch metadata from the Hub`
+
+This means the model is not present locally and Hub access failed.
+
+- Ensure outbound access to `huggingface.co` from the worker.
+- Or pre-download to `/workspace/models/<model-basename>` using setup/download mode.
